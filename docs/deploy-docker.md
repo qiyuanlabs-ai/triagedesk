@@ -23,26 +23,28 @@ HTTPS front end. For a machine of its own, see [deploy-lightsail.md](deploy-ligh
 
 ## First install
 
-The repository is private, so the server pulls it with a read-only deploy key that never leaves the server.
+In the Lightsail browser SSH, clone the repository into `/opt/triagedesk` and run the installer.
 
-1. In the Lightsail browser SSH, create the key and print its public half:
+If the repository is public:
 
-   ```sh
-   sudo sh -c 'mkdir -p /root/.ssh && chmod 700 /root/.ssh
-   [ -f /root/.ssh/triagedesk_deploy ] || ssh-keygen -q -t ed25519 -N "" -C "triagedesk deploy key" -f /root/.ssh/triagedesk_deploy
-   grep -q "^Host github-triagedesk" /root/.ssh/config 2>/dev/null || printf "Host github-triagedesk\n  HostName github.com\n  User git\n  IdentityFile /root/.ssh/triagedesk_deploy\n  IdentitiesOnly yes\n" >> /root/.ssh/config
-   grep -q "^github.com ssh-ed25519" /root/.ssh/known_hosts 2>/dev/null || echo "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl" >> /root/.ssh/known_hosts
-   cat /root/.ssh/triagedesk_deploy.pub'
-   ```
+```sh
+sudo git clone https://github.com/qiyuanlabs-ai/triagedesk.git /opt/triagedesk && sudo sh /opt/triagedesk/deploy/install-lightsail.sh
+```
 
-2. On GitHub, open the repository's Settings, then Deploy keys, then Add deploy key. Paste the line
-   that starts with `ssh-ed25519`, and leave "Allow write access" unticked.
+If it is private (the organization turns off deploy keys, so use a read-only token):
 
-3. Back in the SSH window, clone and install:
+1. On GitHub, create a fine-grained personal access token: resource owner `qiyuanlabs-ai`, only the
+   `triagedesk` repository, permission Contents: Read-only. If the organization asks for approval of
+   fine-grained tokens, an owner approves it under the organization's Personal access tokens settings.
+2. Save it on the server. It is read without being shown and is only used for this repository:
 
    ```sh
-   sudo git clone git@github-triagedesk:qiyuanlabs-ai/triagedesk.git /opt/triagedesk && sudo sh /opt/triagedesk/deploy/install-lightsail.sh
+   sudo bash -c 'read -r -s -p "Paste the GitHub token and press Enter: " t; echo; U=https://github.com/qiyuanlabs-ai/triagedesk.git; git config --global credential.$U.helper store; git config --global credential.$U.useHttpPath true; touch /root/.git-credentials; chmod 600 /root/.git-credentials; printf "https://x-access-token:%s@github.com/qiyuanlabs-ai/triagedesk.git\n" "$t" >> /root/.git-credentials; unset t'
    ```
+
+3. Clone and install with the same command as for a public repository above.
+
+When the token expires, make a new one and run `sudo bash /opt/triagedesk/deploy/set-github-token.sh`.
 
 The script checks free memory and disk first (and adds a 2 GB swap file if there is no swap), then
 builds and starts TriageDesk, validates the combined Caddy config with the MCP demo's own image,

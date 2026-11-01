@@ -4,8 +4,7 @@
 #
 #   sudo sh /opt/triagedesk/deploy/install-lightsail.sh
 #
-# The repository is private, so the server pulls it with a read-only deploy key.
-# First-time setup (the deploy key and the first clone) is in docs/deploy-docker.md.
+# The first clone (and, for a private repository, the read-only token) is in docs/deploy-docker.md.
 #
 # What it does, in order. It stops before changing anything if a check fails.
 #  1. Checks memory and disk, and adds a 2 GB swap file if the box has no swap.
@@ -18,7 +17,7 @@
 set -e
 
 TRIAGEDESK_HOST="${TRIAGEDESK_HOST:-triagedesk-demo.qiyuanlabs.ai}"
-REPO="${REPO:-git@github-triagedesk:qiyuanlabs-ai/triagedesk.git}"
+REPO="${REPO:-https://github.com/qiyuanlabs-ai/triagedesk.git}"
 DIR=/opt/triagedesk
 EA_DIR="${EA_DIR:-/opt/ea-mcp-server}"
 OVERRIDE="$DIR/deploy/ea-mcp-proxy.yml"
@@ -67,9 +66,9 @@ fi
 say "Getting the code into $DIR"
 command -v git >/dev/null || { apt-get update -q && apt-get install -yq git; }
 [ -d "$DIR/.git" ] || git clone "$REPO" "$DIR" \
-  || fail "could not clone $REPO. Check the deploy key is added to the repository (docs/deploy-docker.md)."
+  || fail "could not clone $REPO. If the repository is private, set the read-only token first (docs/deploy-docker.md)."
 cd "$DIR"
-git pull --ff-only || fail "could not pull the latest code. Check the deploy key is still on the repository."
+git pull --ff-only || fail "could not pull the latest code. If the repository is private, the token may have expired: run deploy/set-github-token.sh."
 
 if [ ! -f .env ]; then
   cp .env.example .env
