@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Jobs\ResumeAgentRun;
 use App\Jobs\TriageTicket;
 use App\Livewire\DemoLogin;
 use App\Livewire\TicketDetail;
@@ -320,5 +321,85 @@ class SecurityRegressionTest extends TestCase
         }
 
         $this->assertGuest();
+    }
+
+    // Second review -------------------------------------------------------------------------
+
+    public function test_r2_auto_refunds_add_up_per_customer_across_tickets(): void
+    {
+        [$first, $second] = $this->ticketA->customer->payments()->orderBy('id')->get()->all();
+        $otherTicket = Ticket::factory()->for($this->ticketA->customer)->create();
+
+        $this->fakeAnthropic([
+            [$this->refund('toolu_1', $this->ticketA, 40, $first)],
+            [$this->text('Done.')],
+            [$this->refund('toolu_2', $otherTicket, 40, $second)],
+            [$this->text('Done.')],
+        ]);
+
+        app(AgentRunner::class)->converse($this->ticketA, 'Refund $40.');
+        app(AgentRunner::class)->converse($otherTicket, 'Refund $40 on the other payment.');
+
+        $this->assertSame(4000, (int) $this->ticketA->customer->payments()->sum('refunded_cents'));
+        $this->assertSame(1, AgentAction::pending()->count());
+        $this->assertSame($otherTicket->id, AgentAction::pending()->sole()->ticket_id);
+    }
+
+    public function test_r2_auto_refunds_older_than_the_window_no_longer_count(): void
+    {
+        [$first, $second] = $this->ticketA->customer->payments()->orderBy('id')->get()->all();
+        $otherTicket = Ticket::factory()->for($this->ticketA->customer)->create();
+
+        $this->fakeAnthropic([
+            [$this->refund('toolu_1', $this->ticketA, 40, $first)],
+            [$this->text('Done.')],
+            [$this->refund('toolu_2', $otherTicket, 40, $second)],
+            [$this->text('Done.')],
+        ]);
+
+        app(AgentRunner::class)->converse($this->ticketA, 'Refund $40.');
+        $this->travel(31)->days();
+        app(AgentRunner::class)->converse($otherTicket, 'Refund $40 on the other payment.');
+
+        $this->assertSame(8000, (int) $this->ticketA->customer->payments()->sum('refunded_cents'));
+        $this->assertSame(0, AgentAction::pending()->count());
+    }
+
+    public function test_r2_password_free_sign_in_stays_off_in_local_without_demo_mode(): void
+    {
+        config(['triagedesk.demo.enabled' => false]);
+        $this->app->detectEnvironment(fn () => 'local');
+
+        try {
+            Livewire::test(DemoLogin::class)->call('loginAs', $this->admin->id);
+        } catch (\Throwable) {
+            //
+        }
+
+        $this->assertGuest();
+    }
+
+    public function test_r2_the_example_env_is_production(): void
+    {
+        $this->assertMatchesRegularExpression('/^APP_ENV=production$/m', file_get_contents(base_path('.env.example')));
+    }
+
+    public function test_r2_an_approval_that_cannot_run_for_budget_goes_back_to_pending(): void
+    {
+        $action = $this->approvedPendingRun();
+
+        // The budget runs out after the approval and before the worker picks the run up.
+        config(['triagedesk.providers.anthropic.daily_limit_usd' => 0.01]);
+        AiBudget::recordCost(10_000, 'anthropic');
+
+        (new ResumeAgentRun($this->ticketA->fresh(), $action->invocation_id))->handle(app(AgentRunner::class));
+
+        $action->refresh();
+        $this->assertSame(AgentAction::PENDING, $action->status);
+        $this->assertNull($action->decided_by);
+        $this->assertNull($action->submitted_at);
+        $this->assertSame(0, (int) $this->ticketA->customer->payments()->sum('refunded_cents'));
+        $this->assertStringContainsString('back to pending', (string) $this->ticketA->fresh()->agent_error);
+        Http::assertSentCount(1);
     }
 }

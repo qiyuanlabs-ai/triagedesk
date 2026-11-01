@@ -34,11 +34,13 @@ git clone <your fork> triagedesk && cd triagedesk
 composer run setup          # installs, creates .env, migrates and seeds, builds assets
 ```
 
-Add a key for one or both providers to `.env`:
+Add a key for one or both providers to `.env`, and turn on demo mode so you can sign in without a password (pick any access code for live runs on your machine):
 
 ```dotenv
 ANTHROPIC_API_KEY=sk-ant-...
 OPENAI_API_KEY=sk-...
+DEMO_MODE=true
+DEMO_ACCESS_CODE=pick-a-code
 ```
 
 Then start the server, queue worker and Vite together:
@@ -47,7 +49,7 @@ Then start the server, queue worker and Vite together:
 composer run dev
 ```
 
-Open http://localhost:8000 and sign in as one of the three seeded teammates (no passwords: it is a demo).
+Open http://localhost:8000, sign in as one of the three seeded teammates (no passwords: it is a demo), and enter your access code in the bar at the top to run the agent live.
 
 Things to try:
 
@@ -157,7 +159,9 @@ With `DEMO_MODE=true`, visitors are in **replay mode**: they browse real runs re
 
 Record the runs visitors see with `php artisan triagedesk:record --fresh`: it resets the data, triages six seed tickets for real, approves what the agent proposes as the admin, and saves the result to `DEMO_RECORDINGS_PATH`. `php artisan triagedesk:reset-demo` (run nightly) restores the seed data and those recorded runs while keeping the day's spend counters. Refunds and replies only change the demo database; nothing is charged or emailed.
 
-Password-free sign-in only works in demo mode or local development.
+Password-free sign-in only works with `DEMO_MODE=true`, whatever `APP_ENV` is. `.env.example` ships with `APP_ENV=production` and `APP_DEBUG=false`.
+
+A refund runs without approval only while it, plus what was already refunded on that payment and what was auto-refunded to the same customer in the last `REFUND_AUTO_APPROVE_WINDOW_DAYS` (30) days on any ticket, stays within `REFUND_AUTO_APPROVE_LIMIT` ($50). If today's budget runs out between an approval and the run resuming, the approved actions go back to pending with a note on the ticket; approve them again once the budget resets.
 
 ## License
 

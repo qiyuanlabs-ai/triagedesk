@@ -27,6 +27,8 @@ class PagesTest extends TestCase
 
     public function test_guests_are_sent_to_the_teammate_picker(): void
     {
+        config(['triagedesk.demo.enabled' => true]);
+
         $this->get('/tickets')->assertRedirect('/login');
         $this->get('/login')->assertOk()->assertSee('Alex Rivera')->assertSee('Sam Chen');
     }
@@ -35,6 +37,7 @@ class PagesTest extends TestCase
     {
         $sam = User::firstWhere('email', 'sam@flowly.test');
 
+        config(['triagedesk.demo.enabled' => true]);
         Livewire::test(DemoLogin::class)->call('loginAs', $sam->id)->assertRedirect(route('tickets.index'));
 
         $this->assertAuthenticatedAs($sam);

@@ -27,11 +27,12 @@ class DemoLogin extends Component
     }
 
     /**
-     * Password-free sign-in exists for the public demo and local development only.
+     * Password-free sign-in exists only in demo mode, whatever APP_ENV says, so a server
+     * left on APP_ENV=local never lets anyone sign in as an admin.
      */
     public static function enabled(): bool
     {
-        return (bool) config('triagedesk.demo.enabled') || app()->environment('local', 'testing');
+        return (bool) config('triagedesk.demo.enabled');
     }
 
     public function render()

@@ -122,7 +122,7 @@ class ToolsTest extends TestCase
 
         $approval = (new IssueRefund($ticket))->shouldRequestApproval(new Request(['payment_id' => $second->id, 'amount' => 30]));
 
-        $this->assertSame('Refund of $30.00 brings refunds on this ticket and payment to $60.00, over the $50.00 auto-approve limit.', $approval?->reason);
+        $this->assertSame('Refund of $30.00 brings this customer\'s refunds to $60.00 within 30 days, over the $50.00 auto-approve limit.', $approval?->reason);
     }
 
     public function test_a_refund_a_human_approved_runs_even_above_the_limit(): void

@@ -19,8 +19,8 @@ use Stringable;
  * Refunds a payment of the ticket's customer. The ticket is fixed when the agent is built, never taken from the model.
  *
  * Small refunds run at once, but only while the running total stays within the limit: the amount, plus what was
- * already refunded on that payment, plus what earlier calls auto-refunded on this ticket. Splitting a large refund
- * into small ones therefore still reaches a human.
+ * already refunded on that payment, plus what was auto-refunded to the same customer in the last 30 days (configurable),
+ * on any ticket. Splitting a large refund into small ones, or across tickets, therefore still reaches a human.
  */
 class IssueRefund implements Approvable, Tool
 {
@@ -35,7 +35,7 @@ class IssueRefund implements Approvable, Tool
     {
         $limit = number_format($this->limitCents() / 100, 2);
 
-        return "Refund part or all of one of this ticket's customer's payments. While the refunds on this ticket and payment total \${$limit} or less "
+        return "Refund part or all of one of this ticket's customer's payments. While refunds to this customer total \${$limit} or less "
             .'they run at once; beyond that a human approves. Never split a refund into smaller ones: propose the full amount in one call.';
     }
 
@@ -55,8 +55,8 @@ class IssueRefund implements Approvable, Tool
 
         return Approval::required($before === 0
             ? sprintf('Refund of $%s is over the $%s auto-approve limit.', number_format($cents / 100, 2), $limit)
-            : sprintf('Refund of $%s brings refunds on this ticket and payment to $%s, over the $%s auto-approve limit.',
-                number_format($cents / 100, 2), number_format(($before + $cents) / 100, 2), $limit));
+            : sprintf('Refund of $%s brings this customer\'s refunds to $%s within %d days, over the $%s auto-approve limit.',
+                number_format($cents / 100, 2), number_format(($before + $cents) / 100, 2), $this->windowDays(), $limit));
     }
 
     /**
@@ -147,20 +147,27 @@ class IssueRefund implements Approvable, Tool
 
     /**
      * What counts toward the limit before this refund: everything refunded on the payment, plus refunds
-     * on this ticket's other payments that ran without a human.
+     * of the customer's other payments that ran without a human in the last window_days, from any ticket.
+     * A customer who opens a second ticket for a second payment therefore still reaches a human.
      */
     protected function refundedBeforeCents(?Payment $payment): int
     {
-        $autoRefundedElsewhere = AgentAction::where('ticket_id', $this->ticket->id)
+        $autoRefundedElsewhere = AgentAction::whereIn('ticket_id', Ticket::where('customer_id', $this->ticket->customer_id)->select('id'))
             ->where('tool', 'IssueRefund')
             ->where('status', AgentAction::EXECUTED)
             ->where('required_approval', false)
+            ->where('created_at', '>=', now()->subDays($this->windowDays()))
             ->get()
             ->map->effectiveArguments()
             ->reject(fn (array $arguments) => $payment && (int) ($arguments['payment_id'] ?? 0) === $payment->id)
             ->sum(fn (array $arguments) => (int) round(((float) ($arguments['amount'] ?? 0)) * 100));
 
         return ($payment?->refunded_cents ?? 0) + $autoRefundedElsewhere;
+    }
+
+    protected function windowDays(): int
+    {
+        return max(1, (int) config('triagedesk.refund_auto_approve_window_days'));
     }
 
     protected function limitCents(): int

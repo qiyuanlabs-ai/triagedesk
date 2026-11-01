@@ -68,7 +68,17 @@ class AgentRunner
      */
     public function resume(Ticket $ticket, string $invocationId): ?AgentResponse
     {
-        $this->ensureBudget();
+        try {
+            $this->ensureBudget();
+        } catch (RuntimeException $exception) {
+            // The budget ran out between the approval and this resume. Never leave the action
+            // showing "approved" when it will not run: hand it back to the approvers instead.
+            $reopened = $this->reopen($invocationId);
+
+            throw new RuntimeException($reopened > 0
+                ? 'Today\'s AI budget ran out before the approved actions could run, so they are back to pending. Approve them again after '.static::resetLabel().'.'
+                : $exception->getMessage(), previous: $exception);
+        }
 
         $actions = $this->claim($invocationId);
 
@@ -121,6 +131,24 @@ class AgentRunner
         } catch (RunAlreadyClaimed) {
             return null;
         }
+    }
+
+    /**
+     * Return a run's approved, not yet submitted actions to the approval inbox.
+     */
+    protected function reopen(string $invocationId): int
+    {
+        return AgentAction::where('invocation_id', $invocationId)
+            ->whereNull('submitted_at')
+            ->where('status', AgentAction::APPROVED)
+            ->update([
+                'status' => AgentAction::PENDING,
+                'decided_by' => null,
+                'decided_at' => null,
+                'decision_note' => null,
+                'edited_arguments' => null,
+                'updated_at' => now(),
+            ]);
     }
 
     protected function prompt(Ticket $ticket, string $message): AgentResponse

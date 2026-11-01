@@ -89,12 +89,15 @@ return [
     |--------------------------------------------------------------------------
     |
     | A refund runs without a human only while it, plus what was already
-    | refunded on the same payment and auto-refunded on the same ticket,
-    | stays at or below this many US dollars.
+    | refunded on the same payment and what was auto-refunded to the same
+    | customer within the window (on any ticket), stays at or below this
+    | many US dollars.
     |
     */
 
     'refund_auto_approve_limit' => (float) env('REFUND_AUTO_APPROVE_LIMIT', 50),
+
+    'refund_auto_approve_window_days' => (int) env('REFUND_AUTO_APPROVE_WINDOW_DAYS', 30),
 
     /*
     |--------------------------------------------------------------------------
