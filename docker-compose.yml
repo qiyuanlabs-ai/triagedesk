@@ -45,6 +45,9 @@ services:
     volumes:
       - data:/data/app
     command: ["php", "artisan", "queue:work", "--sleep=3", "--tries=1", "--timeout=300", "--max-time=3600"]
+    healthcheck:
+      # The base image's check looks for Caddy, which the worker does not run.
+      disable: true
     mem_limit: 256m
 
 volumes:
