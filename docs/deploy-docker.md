@@ -50,7 +50,7 @@ The script checks free memory and disk first (and adds a 2 GB swap file if there
 builds and starts TriageDesk, validates the combined Caddy config with the MCP demo's own image,
 restarts only the `mcp` container, and checks the MCP demo still answers the same way. If it does
 not, the script undoes the change and stops. It also adds a cron job that resets the demo data at
-03:30 every night.
+03:30 every night, keeping the day's AI spend counters.
 
 Use another host name by putting `TRIAGEDESK_HOST=...` after `sudo` on the first run.
 
@@ -62,13 +62,30 @@ sudo sh /opt/triagedesk/deploy/install-lightsail.sh
 
 It pulls the latest code, rebuilds, and keeps `.env` and the data.
 
-Then add the API key. It is read from the keyboard without being shown:
+API keys are read from the keyboard without being shown. Set one or both:
 
 ```sh
-sudo bash /opt/triagedesk/deploy/set-api-key.sh
+sudo bash /opt/triagedesk/deploy/set-api-key.sh          # Anthropic
+sudo bash /opt/triagedesk/deploy/set-api-key.sh openai   # OpenAI
 ```
 
-For OpenAI instead: `sudo bash /opt/triagedesk/deploy/set-api-key.sh OPENAI_API_KEY openai`.
+Live model runs need an access code. Type one, or press Enter to have one made up and shown once:
+
+```sh
+sudo bash /opt/triagedesk/deploy/set-access-code.sh
+```
+
+`--off` removes the code, so nobody can start live runs. Changing the code signs everyone out of live mode.
+
+Record the runs visitors see in replay mode (about six model runs, a few cents):
+
+```sh
+cd /opt/triagedesk && sudo docker compose exec web php artisan triagedesk:record --fresh
+```
+
+The recording is saved in the data volume and restored by every nightly reset. Daily limits per provider
+(`AI_ANTHROPIC_DAILY_LIMIT_USD`, `AI_OPENAI_DAILY_LIMIT_USD`) and the other settings are in `.env.example`;
+after editing `.env`, run `sudo docker compose up -d --force-recreate web worker`.
 
 ## Everyday commands
 
@@ -76,7 +93,7 @@ For OpenAI instead: `sudo bash /opt/triagedesk/deploy/set-api-key.sh OPENAI_API_
 cd /opt/triagedesk
 docker compose ps                     # both containers should be up, web healthy
 docker compose logs --tail 100 web worker
-docker compose exec web php artisan migrate:fresh --seed --force   # reset the demo now
+docker compose exec web php artisan triagedesk:reset-demo          # reset the demo now
 ```
 
 ## Undo

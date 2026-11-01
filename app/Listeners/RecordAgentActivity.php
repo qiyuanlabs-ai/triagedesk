@@ -4,9 +4,7 @@ namespace App\Listeners;
 
 use App\Models\AgentAction;
 use App\Models\Ticket;
-use App\Services\AiBudget;
 use Laravel\Ai\Approvals\PendingApproval;
-use Laravel\Ai\Events\AgentPrompted;
 use Laravel\Ai\Events\ToolApprovalRequested;
 use Laravel\Ai\Events\ToolApprovalResolved;
 use Laravel\Ai\Responses\Data\ToolResult;
@@ -18,12 +16,14 @@ class RecordAgentActivity
      */
     public function pending(ToolApprovalRequested $event): void
     {
+        // Write tools only ever act on the conversation's own ticket, so the row belongs to it,
+        // whatever ticket_id the model may have put in the arguments.
         $ticket = $event->conversationUser instanceof Ticket ? $event->conversationUser : null;
 
         $event->pendingApprovals->each(fn (PendingApproval $approval) => AgentAction::updateOrCreate(
             ['tool_call_id' => $approval->id],
             [
-                'ticket_id' => $ticket?->id ?? ($approval->arguments['ticket_id'] ?? null),
+                'ticket_id' => $ticket?->id,
                 'conversation_id' => $event->conversationId,
                 'invocation_id' => $event->invocationId,
                 'tool' => $approval->tool,
@@ -58,10 +58,5 @@ class RecordAgentActivity
 
             $action->save();
         });
-    }
-
-    public function usage(AgentPrompted $event): void
-    {
-        AiBudget::record($event->response->usage->totalTokens());
     }
 }

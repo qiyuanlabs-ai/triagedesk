@@ -4,6 +4,7 @@ namespace App\Livewire\Concerns;
 
 use App\Models\AgentAction;
 use App\Services\ApprovalService;
+use App\Services\LiveAccess;
 use Illuminate\Auth\Access\AuthorizationException;
 use InvalidArgumentException;
 
@@ -57,6 +58,13 @@ trait DecidesActions
     protected function decide(int $id, callable $decision): void
     {
         $this->decisionError = null;
+
+        // A decision resumes the agent, which is a live model run.
+        if ($denial = LiveAccess::denial()) {
+            $this->decisionError = $denial;
+
+            return;
+        }
 
         try {
             $decision(AgentAction::with('ticket')->findOrFail($id));

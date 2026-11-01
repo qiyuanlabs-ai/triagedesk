@@ -17,6 +17,8 @@ class DemoLogin extends Component
      */
     public function loginAs(int $userId)
     {
+        abort_unless(static::enabled(), 403, 'Sign-in without a password is only available in demo mode.');
+
         Auth::login(User::findOrFail($userId));
 
         session()->regenerate();
@@ -24,8 +26,19 @@ class DemoLogin extends Component
         return $this->redirectRoute('tickets.index', navigate: true);
     }
 
+    /**
+     * Password-free sign-in exists for the public demo and local development only.
+     */
+    public static function enabled(): bool
+    {
+        return (bool) config('triagedesk.demo.enabled') || app()->environment('local', 'testing');
+    }
+
     public function render()
     {
-        return view('livewire.demo-login', ['users' => User::orderBy('id')->get()]);
+        return view('livewire.demo-login', [
+            'users' => static::enabled() ? User::orderBy('id')->get() : collect(),
+            'enabled' => static::enabled(),
+        ]);
     }
 }

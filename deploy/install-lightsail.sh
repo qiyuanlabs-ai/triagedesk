@@ -12,7 +12,7 @@
 #  3. Builds and starts TriageDesk (a web and a queue worker container, no host ports).
 #  4. Lets the MCP demo's HTTPS container also serve TRIAGEDESK_HOST, restarts only that
 #     container, checks the MCP demo still answers, and undoes the change if it does not.
-#  5. Resets the demo data every night at 03:30 (server time).
+#  5. Resets the demo data every night at 03:30 (server time), keeping today's AI spend counters.
 # Safe to run again: it keeps .env (and the API key in it) and the database.
 set -e
 
@@ -153,13 +153,18 @@ cd "$DIR"
 
 # 5. Nightly reset ------------------------------------------------------------
 cat > /etc/cron.d/triagedesk-demo-reset <<CRON
-30 3 * * * root cd $DIR && docker compose exec -T web php artisan migrate:fresh --seed --force >> /var/log/triagedesk-demo-reset.log 2>&1
+30 3 * * * root cd $DIR && docker compose exec -T web php artisan triagedesk:reset-demo >> /var/log/triagedesk-demo-reset.log 2>&1
 CRON
 
 say "Done"
-if grep -q '^ANTHROPIC_API_KEY=$' .env; then
-  echo "Next: add your Anthropic API key (it is typed into this window only, nothing is shown):"
-  echo "  sudo bash $DIR/deploy/set-api-key.sh"
+if ! grep -q '^ANTHROPIC_API_KEY=.' .env && ! grep -q '^OPENAI_API_KEY=.' .env; then
+  echo "Next: add an API key (it is typed into this window only, nothing is shown):"
+  echo "  sudo bash $DIR/deploy/set-api-key.sh          # Anthropic"
+  echo "  sudo bash $DIR/deploy/set-api-key.sh openai   # OpenAI"
+fi
+if grep -q '^DEMO_MODE=true' .env && ! grep -q '^DEMO_ACCESS_CODE=.' .env; then
+  echo "Live model runs are off until you set an access code:"
+  echo "  sudo bash $DIR/deploy/set-access-code.sh"
 fi
 echo "Open https://$TRIAGEDESK_HOST once its DNS record points to this server."
 echo "The first visit may take a minute while the certificate is issued."

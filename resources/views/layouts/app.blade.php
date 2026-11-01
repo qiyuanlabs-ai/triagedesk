@@ -33,9 +33,7 @@
     </header>
 
     @if (config('triagedesk.demo.enabled'))
-        <div class="bg-stone-900 px-4 py-2 text-center text-xs text-stone-200">
-            Public demo of an open-source Laravel AI agent. Data resets every night; refunds and replies are simulated.
-        </div>
+        <livewire:live-mode />
     @endif
 
     <main class="mx-auto max-w-7xl px-4 py-6">

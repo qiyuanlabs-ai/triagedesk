@@ -8,14 +8,19 @@ use Laravel\Ai\Contracts\Tool;
 use Laravel\Ai\Tools\Request;
 use Stringable;
 
+/**
+ * Searches the tickets of this ticket's customer only.
+ */
 class SearchTickets implements Tool
 {
+    public function __construct(protected Ticket $ticket) {}
+
     /**
      * Get the description of the tool's purpose.
      */
     public function description(): Stringable|string
     {
-        return 'Search support tickets by keyword, customer email or status. Returns up to 10 tickets, newest first.';
+        return 'Search this customer\'s tickets by keyword or status, to see their history. Returns up to 10 tickets, newest first.';
     }
 
     /**
@@ -25,16 +30,14 @@ class SearchTickets implements Tool
     {
         $data = $request->validate([
             'query' => ['nullable', 'string', 'max:100'],
-            'customer_email' => ['nullable', 'string', 'max:255'],
             'status' => ['nullable', 'in:'.implode(',', Ticket::STATUSES)],
         ]);
 
         $tickets = Ticket::query()
-            ->with('customer')
+            ->where('customer_id', $this->ticket->customer_id)
             ->when($data['query'] ?? null, fn ($query, $search) => $query->where(fn ($query) => $query
                 ->where('subject', 'like', "%{$search}%")
                 ->orWhere('summary', 'like', "%{$search}%")))
-            ->when($data['customer_email'] ?? null, fn ($query, $email) => $query->whereRelation('customer', 'email', $email))
             ->when($data['status'] ?? null, fn ($query, $status) => $query->where('status', $status))
             ->latest('id')
             ->limit(10)
@@ -45,8 +48,8 @@ class SearchTickets implements Tool
         }
 
         return $tickets->map(fn (Ticket $ticket) => sprintf(
-            '#%d [%s/%s] %s (customer: %s)',
-            $ticket->id, $ticket->status, $ticket->priority ?? 'untriaged', $ticket->subject, $ticket->customer->email,
+            '#%d [%s/%s] %s',
+            $ticket->id, $ticket->status, $ticket->priority ?? 'untriaged', $ticket->subject,
         ))->implode("\n");
     }
 
@@ -57,7 +60,6 @@ class SearchTickets implements Tool
     {
         return [
             'query' => $schema->string()->description('Words to look for in the subject or summary.'),
-            'customer_email' => $schema->string()->description('Only tickets from this customer.'),
             'status' => $schema->string()->enum(Ticket::STATUSES),
         ];
     }

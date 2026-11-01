@@ -9,14 +9,19 @@ use Laravel\Ai\Contracts\Tool;
 use Laravel\Ai\Tools\Request;
 use Stringable;
 
+/**
+ * Reads this ticket, or another ticket from the same customer.
+ */
 class GetTicket implements Tool
 {
+    public function __construct(protected Ticket $ticket) {}
+
     /**
      * Get the description of the tool's purpose.
      */
     public function description(): Stringable|string
     {
-        return 'Get one ticket with its triage fields and full message thread.';
+        return 'Get this ticket (or another ticket from the same customer) with its triage fields and full message thread.';
     }
 
     /**
@@ -24,12 +29,14 @@ class GetTicket implements Tool
      */
     public function handle(Request $request): Stringable|string
     {
-        $data = $request->validate(['ticket_id' => ['required', 'integer']]);
+        $id = (int) ($request['ticket_id'] ?? $this->ticket->id);
 
-        $ticket = Ticket::with(['customer', 'assignee', 'messages'])->find($data['ticket_id']);
+        $ticket = Ticket::with(['customer', 'assignee', 'messages'])
+            ->where('customer_id', $this->ticket->customer_id)
+            ->find($id);
 
         if (! $ticket) {
-            return "Ticket #{$data['ticket_id']} does not exist.";
+            return "Ticket #{$id} is not one of this customer's tickets.";
         }
 
         $thread = $ticket->messages->map(fn (TicketMessage $message) => sprintf(
@@ -59,7 +66,7 @@ class GetTicket implements Tool
     public function schema(JsonSchema $schema): array
     {
         return [
-            'ticket_id' => $schema->integer()->required(),
+            'ticket_id' => $schema->integer()->description('Leave out for this ticket.'),
         ];
     }
 }

@@ -26,7 +26,7 @@ class Ticket extends Model
 
     protected function casts(): array
     {
-        return ['triaged_at' => 'datetime'];
+        return ['triaged_at' => 'datetime', 'recorded' => 'boolean'];
     }
 
     public function customer(): BelongsTo

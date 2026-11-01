@@ -4,8 +4,11 @@ namespace App\Services;
 
 use App\Ai\Agents\SupportAgent;
 use App\Ai\Agents\TriageAgent;
+use App\Exceptions\RunAlreadyClaimed;
 use App\Models\AgentAction;
 use App\Models\Ticket;
+use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\DB;
 use Laravel\Ai\Approvals\Decision;
 use Laravel\Ai\Approvals\Decisions;
 use Laravel\Ai\Responses\AgentResponse;
@@ -13,6 +16,9 @@ use RuntimeException;
 
 /**
  * Every call into the agents goes through here, so callers never touch conversation ids or decisions directly.
+ *
+ * Each entry point checks the day's budget and run cap before any model call; the agents' middleware
+ * checks each provider's limit again before every single call.
  */
 class AgentRunner
 {
@@ -21,7 +27,7 @@ class AgentRunner
      */
     public function triage(Ticket $ticket): void
     {
-        $this->ensureBudget();
+        $this->startRun();
 
         $agent = new TriageAgent($ticket->loadMissing('customer.subscription', 'messages'));
 
@@ -36,7 +42,9 @@ class AgentRunner
             'triaged_at' => now(),
         ]);
 
-        $this->converse($ticket, sprintf(
+        $this->ensureBudget();
+
+        $this->prompt($ticket, sprintf(
             '[Automated triage] New ticket classified as %s / %s priority / %s sentiment. '
             .'Investigate it with your read tools and propose the next actions with your write tools.',
             $result['category'], $result['priority'], $result['sentiment'],
@@ -48,8 +56,75 @@ class AgentRunner
      */
     public function converse(Ticket $ticket, string $message): AgentResponse
     {
+        $this->startRun();
+
+        return $this->prompt($ticket, $message);
+    }
+
+    /**
+     * Resume the paused run once every action it is waiting on has a decision.
+     *
+     * Callers must authorize the decider first: continue() does not check who owns the conversation.
+     */
+    public function resume(Ticket $ticket, string $invocationId): ?AgentResponse
+    {
         $this->ensureBudget();
 
+        $actions = $this->claim($invocationId);
+
+        if ($actions === null) {
+            return null;
+        }
+
+        AiBudget::startRun();
+
+        $decisions = Decisions::from($actions->mapWithKeys(fn (AgentAction $action) => [
+            $action->tool_call_id => match (true) {
+                $action->status === AgentAction::REJECTED => Decision::reject(
+                    'A human rejected this action.'.($action->decision_note ? ' Their note: '.$action->decision_note : '')
+                ),
+                $action->edited_arguments !== null => Decision::edit($action->edited_arguments),
+                default => Decision::approve(),
+            },
+        ])->all());
+
+        return SupportAgent::make(ticket: $ticket)
+            ->continue($ticket->agent_conversation_id, as: $ticket)
+            ->prompt($decisions);
+    }
+
+    /**
+     * Mark a fully decided turn as submitted, exactly once even if two workers resume it at the same moment.
+     *
+     * @return Collection<int, AgentAction>|null
+     */
+    protected function claim(string $invocationId)
+    {
+        try {
+            return DB::transaction(function () use ($invocationId) {
+                $actions = AgentAction::where('invocation_id', $invocationId)->whereNull('submitted_at')->get();
+
+                if ($actions->isEmpty() || $actions->contains->isPending()) {
+                    return null;
+                }
+
+                $claimed = AgentAction::whereKey($actions->modelKeys())
+                    ->whereNull('submitted_at')
+                    ->update(['submitted_at' => now()]);
+
+                if ($claimed !== $actions->count()) {
+                    throw new RunAlreadyClaimed; // rolls back this partial claim
+                }
+
+                return $actions;
+            });
+        } catch (RunAlreadyClaimed) {
+            return null;
+        }
+    }
+
+    protected function prompt(Ticket $ticket, string $message): AgentResponse
+    {
         if ($ticket->actions()->pending()->exists()) {
             throw new RuntimeException('Decide the pending actions on this ticket before sending the agent a new message.');
         }
@@ -65,42 +140,26 @@ class AgentRunner
         return $response;
     }
 
-    /**
-     * Resume the paused run once every action it is waiting on has a decision.
-     *
-     * Callers must authorize the decider first: continue() does not check who owns the conversation.
-     */
-    public function resume(Ticket $ticket, string $invocationId): ?AgentResponse
+    protected function startRun(): void
     {
-        $actions = AgentAction::where('invocation_id', $invocationId)
-            ->whereNull('submitted_at')
-            ->get();
+        $this->ensureBudget();
 
-        if ($actions->isEmpty() || $actions->contains->isPending()) {
-            return null;
-        }
-
-        $decisions = Decisions::from($actions->mapWithKeys(fn (AgentAction $action) => [
-            $action->tool_call_id => match (true) {
-                $action->status === AgentAction::REJECTED => Decision::reject(
-                    'A human rejected this action.'.($action->decision_note ? ' Their note: '.$action->decision_note : '')
-                ),
-                $action->edited_arguments !== null => Decision::edit($action->edited_arguments),
-                default => Decision::approve(),
-            },
-        ])->all());
-
-        AgentAction::whereKey($actions->modelKeys())->update(['submitted_at' => now()]);
-
-        return SupportAgent::make(ticket: $ticket)
-            ->continue($ticket->agent_conversation_id, as: $ticket)
-            ->prompt($decisions);
+        AiBudget::startRun();
     }
 
     protected function ensureBudget(): void
     {
-        if (AiBudget::exhausted()) {
-            throw new RuntimeException('The demo has used today\'s AI budget. It resets at midnight UTC.');
+        if (! AiRouting::available()) {
+            throw new RuntimeException('Today\'s live AI budget is used up, or no provider is set up. Live runs return at '.static::resetLabel().'.');
         }
+
+        if (AiBudget::runsExhausted()) {
+            throw new RuntimeException('The demo has reached today\'s number of live runs. They return at '.static::resetLabel().'.');
+        }
+    }
+
+    public static function resetLabel(): string
+    {
+        return 'midnight '.config('triagedesk.budget_timezone').' time';
     }
 }

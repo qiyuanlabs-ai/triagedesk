@@ -2,11 +2,14 @@
 
 namespace App\Ai\Agents;
 
+use App\Ai\Middleware\EnforceAiBudget;
 use App\Models\Ticket;
+use App\Services\AiRouting;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Laravel\Ai\Attributes\MaxTokens;
 use Laravel\Ai\Attributes\UseCheapestModel;
 use Laravel\Ai\Contracts\Agent;
+use Laravel\Ai\Contracts\HasMiddleware;
 use Laravel\Ai\Contracts\HasStructuredOutput;
 use Laravel\Ai\Promptable;
 use Stringable;
@@ -15,8 +18,8 @@ use Stringable;
  * Classifies a new ticket. Its output is written straight onto the ticket, so it needs no approval.
  */
 #[UseCheapestModel]
-#[MaxTokens(1024)]
-class TriageAgent implements Agent, HasStructuredOutput
+#[MaxTokens(4096)]
+class TriageAgent implements Agent, HasMiddleware, HasStructuredOutput
 {
     use Promptable;
 
@@ -62,8 +65,21 @@ class TriageAgent implements Agent, HasStructuredOutput
         return "Subject: {$this->ticket->subject}\nCustomer plan: {$plan}\n\n{$this->ticket->body()}";
     }
 
-    public function model(): ?string
+    /**
+     * Check each provider's daily limit before the model call and record what it cost.
+     */
+    public function middleware(): array
     {
-        return config('triagedesk.triage_model');
+        return [new EnforceAiBudget];
+    }
+
+    /**
+     * The providers to try, in order: those with an API key and budget left today.
+     *
+     * @return array<string, string|null>
+     */
+    public function provider(): array
+    {
+        return AiRouting::chain('triage');
     }
 }

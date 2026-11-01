@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\ContentSecurityPolicy;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -16,6 +17,8 @@ return Application::configure(basePath: dirname(__DIR__))
         // read the visitor's address from X-Forwarded-For so the per-IP demo limits stay
         // per visitor and generated URLs use https. Public addresses are never trusted.
         $middleware->trustProxies(at: ['127.0.0.1', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16']);
+
+        $middleware->web(append: [ContentSecurityPolicy::class]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(

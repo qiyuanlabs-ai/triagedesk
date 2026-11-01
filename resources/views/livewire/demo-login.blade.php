@@ -4,6 +4,11 @@
         An AI agent triages Flowly's support tickets and proposes replies, ticket changes and refunds.
         Anything that changes data waits in an approval inbox until a person says yes.
     </p>
+    @unless ($enabled)
+        <p class="mt-6 rounded bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            Sign-in without a password is only available in demo mode (DEMO_MODE=true) or local development.
+        </p>
+    @endunless
     <p class="mt-6 text-sm font-medium">Sign in as a teammate</p>
     <div class="mt-3 space-y-2">
         @foreach ($users as $user)

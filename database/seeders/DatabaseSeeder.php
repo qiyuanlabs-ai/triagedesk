@@ -3,6 +3,7 @@
 namespace Database\Seeders;
 
 use App\Models\User;
+use App\Support\Recordings;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Str;
 
@@ -24,5 +25,10 @@ class DatabaseSeeder extends Seeder
             CustomerSeeder::class,
             TicketSeeder::class,
         ]);
+
+        // Put back the real runs recorded with "php artisan triagedesk:record", if there are any.
+        if ($restored = Recordings::import()) {
+            $this->command?->info("Restored {$restored} recorded agent runs.");
+        }
     }
 }

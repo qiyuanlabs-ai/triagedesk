@@ -28,6 +28,18 @@ class ApprovalService
     {
         Gate::forUser($user)->authorize('work', $action->ticket);
 
+        // The tool always acts on the action's own ticket; an edit naming another ticket is refused
+        // rather than silently ignored, so the approver sees what will really happen.
+        if ($editedArguments !== null && array_key_exists('ticket_id', $editedArguments)
+            && (int) $editedArguments['ticket_id'] !== $action->ticket_id) {
+            throw new InvalidArgumentException('An edit cannot move this action to another ticket.');
+        }
+
+        // A decision resumes the run, which calls the model; keep it pending rather than strand it.
+        if (! AiRouting::available() || AiBudget::runsExhausted()) {
+            throw new InvalidArgumentException('Today\'s live AI budget is used up, so this action stays pending until '.AgentRunner::resetLabel().'.');
+        }
+
         DB::transaction(function () use ($action, $user, $status, $note, $editedArguments) {
             $action = AgentAction::whereKey($action->getKey())->lockForUpdate()->firstOrFail();
 

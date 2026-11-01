@@ -12,16 +12,21 @@ use Laravel\Ai\Contracts\Tool;
 use Laravel\Ai\Tools\Request;
 use Stringable;
 
+/**
+ * Changes the ticket the agent is working on. The ticket is fixed when the agent is built, never taken from the model.
+ */
 class UpdateTicket implements Approvable, Tool
 {
     use InteractsWithApprovals;
+
+    public function __construct(protected Ticket $ticket) {}
 
     /**
      * Get the description of the tool's purpose.
      */
     public function description(): Stringable|string
     {
-        return 'Change a ticket\'s status, priority or assignee. A human approves every change before it runs.';
+        return 'Change this ticket\'s status, priority or assignee. A human approves every change before it runs.';
     }
 
     /**
@@ -30,14 +35,11 @@ class UpdateTicket implements Approvable, Tool
     public function handle(Request $request): Stringable|string
     {
         $data = $request->validate([
-            'ticket_id' => ['required', 'integer', 'exists:tickets,id'],
             'status' => ['nullable', 'in:'.implode(',', Ticket::STATUSES)],
             'priority' => ['nullable', 'in:'.implode(',', Ticket::PRIORITIES)],
             'assignee_email' => ['nullable', 'email', 'exists:users,email'],
             'reason' => ['required', 'string', 'max:500'],
         ]);
-
-        $ticket = Ticket::findOrFail($data['ticket_id']);
 
         $changes = array_filter([
             'status' => $data['status'] ?? null,
@@ -49,11 +51,11 @@ class UpdateTicket implements Approvable, Tool
             return 'Nothing to change: pass a status, priority or assignee_email.';
         }
 
-        $ticket->update($changes);
+        $this->ticket->update($changes);
 
-        $result = 'Updated ticket #'.$ticket->id.': '.collect($changes)->map(fn ($value, $key) => "{$key}={$value}")->implode(', ').'.';
+        $result = 'Updated ticket #'.$this->ticket->id.': '.collect($changes)->map(fn ($value, $key) => "{$key}={$value}")->implode(', ').'.';
 
-        ActionRecorder::executed($request, 'UpdateTicket', $ticket->id, $result);
+        ActionRecorder::executed($request, 'UpdateTicket', $this->ticket->id, $result);
 
         return $result;
     }
@@ -64,7 +66,6 @@ class UpdateTicket implements Approvable, Tool
     public function schema(JsonSchema $schema): array
     {
         return [
-            'ticket_id' => $schema->integer()->required(),
             'status' => $schema->string()->enum(Ticket::STATUSES),
             'priority' => $schema->string()->enum(Ticket::PRIORITIES),
             'assignee_email' => $schema->string()->description('Email of the support teammate to assign.'),

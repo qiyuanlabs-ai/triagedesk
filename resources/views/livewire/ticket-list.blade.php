@@ -1,7 +1,7 @@
 <div wire:poll.10s>
     <div class="flex flex-wrap items-center justify-between gap-3">
         <h1 class="text-xl font-semibold tracking-tight">Tickets</h1>
-        <button wire:click="simulateTicket" class="rounded bg-stone-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-stone-700">Simulate a new ticket</button>
+        <button wire:click="simulateTicket" @disabled($liveDenial) title="{{ $liveDenial }}" class="rounded bg-stone-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-stone-700 disabled:opacity-40">Simulate a new ticket</button>
     </div>
 
     @if ($notice)
@@ -42,6 +42,9 @@
                         <td class="px-3 py-2 text-stone-500">{{ $ticket->id }}</td>
                         <td class="px-3 py-2">
                             <a href="{{ route('tickets.show', $ticket) }}" wire:navigate class="font-medium hover:underline">{{ $ticket->subject }}</a>
+                            @if ($ticket->recorded)
+                                <span class="ml-1 rounded bg-violet-100 px-1.5 py-0.5 text-xs font-medium text-violet-800">Recorded run</span>
+                            @endif
                             @if ($ticket->pending_count)
                                 <span class="ml-1 rounded-full bg-amber-500 px-2 py-0.5 text-xs font-semibold text-white">{{ $ticket->pending_count }} to approve</span>
                             @endif
@@ -57,8 +60,10 @@
                                     <x-badge :value="$ticket->priority" />
                                     <x-badge :value="$ticket->sentiment" />
                                 </div>
-                            @else
+                            @elseif (! $liveDenial)
                                 <button wire:click="triage({{ $ticket->id }})" class="text-xs text-sky-700 underline">Run triage</button>
+                            @else
+                                <span class="text-xs text-stone-400">Not triaged</span>
                             @endif
                         </td>
                         <td class="px-3 py-2"><x-badge :value="$ticket->status" /></td>

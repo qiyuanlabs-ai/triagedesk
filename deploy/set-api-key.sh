@@ -1,11 +1,16 @@
 #!/bin/bash
-# Saves the AI provider's API key in /opt/triagedesk/.env and restarts TriageDesk.
+# Saves an AI provider's API key in /opt/triagedesk/.env and restarts TriageDesk.
 # The key is read from the keyboard without being shown, and is never printed.
-#   sudo bash /opt/triagedesk/deploy/set-api-key.sh            # Anthropic (default)
-#   sudo bash /opt/triagedesk/deploy/set-api-key.sh OPENAI_API_KEY openai
+#   sudo bash /opt/triagedesk/deploy/set-api-key.sh            # Anthropic
+#   sudo bash /opt/triagedesk/deploy/set-api-key.sh openai     # OpenAI
 set -e
-VAR="${1:-ANTHROPIC_API_KEY}"
-PROVIDER="${2:-}"
+case "${1:-anthropic}" in
+  anthropic) VAR=ANTHROPIC_API_KEY ;;
+  openai) VAR=OPENAI_API_KEY ;;
+  gemini) VAR=GEMINI_API_KEY ;;
+  *_API_KEY) VAR="$1" ;;
+  *) echo "Unknown provider '$1'. Use anthropic, openai or gemini." >&2; exit 1 ;;
+esac
 DIR=/opt/triagedesk
 cd "$DIR"
 
@@ -19,9 +24,8 @@ if grep -q "^#\? *$VAR=" .env; then
 else
   echo "$VAR=$key" >> .env
 fi
-[ -n "$PROVIDER" ] && sed -i "s|^AI_PROVIDER=.*|AI_PROVIDER=$PROVIDER|" .env
 chmod 600 .env
 unset key
 
 docker compose up -d --force-recreate web worker >/dev/null
-echo "Saved. TriageDesk restarted with the new key."
+echo "Saved $VAR. TriageDesk restarted with it."

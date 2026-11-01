@@ -5,7 +5,7 @@ namespace App\Livewire;
 use App\Jobs\TriageTicket;
 use App\Models\Customer;
 use App\Models\Ticket;
-use App\Services\AiBudget;
+use App\Services\LiveAccess;
 use Database\Seeders\TicketSeeder;
 use Illuminate\Support\Facades\RateLimiter;
 use Livewire\Attributes\Layout;
@@ -68,8 +68,16 @@ class TicketList extends Component
 
     public function triage(int $id): void
     {
+        $ticket = Ticket::findOrFail($id);
+
+        if (! auth()->user()->can('work', $ticket)) {
+            $this->notice = "Ticket #{$id} is assigned to someone else, so only they or an admin can run its triage.";
+
+            return;
+        }
+
         if ($this->allowAgentRun()) {
-            TriageTicket::dispatch(Ticket::findOrFail($id));
+            TriageTicket::dispatch($ticket);
 
             $this->notice = "Triaging ticket #{$id}.";
         }
@@ -77,8 +85,8 @@ class TicketList extends Component
 
     protected function allowAgentRun(): bool
     {
-        if (AiBudget::exhausted()) {
-            $this->notice = 'The demo has used today\'s AI budget. Browsing still works; agent runs resume tomorrow.';
+        if ($denial = LiveAccess::denial()) {
+            $this->notice = $denial;
 
             return false;
         }
@@ -109,6 +117,6 @@ class TicketList extends Component
             ->latest('id')
             ->paginate(15);
 
-        return view('livewire.ticket-list', ['tickets' => $tickets]);
+        return view('livewire.ticket-list', ['tickets' => $tickets, 'liveDenial' => LiveAccess::denial()]);
     }
 }

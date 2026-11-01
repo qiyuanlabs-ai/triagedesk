@@ -34,7 +34,10 @@ class ToolsTest extends TestCase
     #[DataProvider('refundAmounts')]
     public function test_refunds_need_approval_only_above_the_limit(float $amount, bool $needsApproval): void
     {
-        $approval = (new IssueRefund)->shouldRequestApproval(new Request(['amount' => $amount]));
+        $ticket = Ticket::factory()->for(Customer::factory()->withPayments())->create();
+        $payment = $ticket->customer->payments()->first();
+
+        $approval = (new IssueRefund($ticket))->shouldRequestApproval(new Request(['payment_id' => $payment->id, 'amount' => $amount]));
 
         $this->assertSame($needsApproval, $approval !== null);
     }
@@ -43,12 +46,14 @@ class ToolsTest extends TestCase
     {
         config(['triagedesk.refund_auto_approve_limit' => 200]);
 
-        $this->assertNull((new IssueRefund)->shouldRequestApproval(new Request(['amount' => 149])));
+        $ticket = Ticket::factory()->for(Customer::factory()->withPayments())->create();
+
+        $this->assertNull((new IssueRefund($ticket))->shouldRequestApproval(new Request(['payment_id' => $ticket->customer->payments()->value('id'), 'amount' => 149])));
     }
 
     public function test_write_tools_always_need_approval(): void
     {
-        $this->assertNotNull((new UpdateTicket)->shouldRequestApproval(new Request(['ticket_id' => 1, 'status' => 'closed'])));
+        $this->assertNotNull((new UpdateTicket(Ticket::factory()->create()))->shouldRequestApproval(new Request(['status' => 'closed'])));
     }
 
     public function test_refunds_cannot_touch_another_customers_payment(): void
@@ -56,8 +61,8 @@ class ToolsTest extends TestCase
         $ticket = Ticket::factory()->for(Customer::factory()->withPayments())->create();
         $otherPayment = Customer::factory()->withPayments()->create()->payments()->first();
 
-        $result = (new IssueRefund)->handle(new Request([
-            'ticket_id' => $ticket->id, 'payment_id' => $otherPayment->id, 'amount' => 10, 'reason' => 'Test.',
+        $result = (new IssueRefund($ticket))->handle(new Request([
+            'payment_id' => $otherPayment->id, 'amount' => 10, 'reason' => 'Test.',
         ], 'call_1'));
 
         $this->assertStringContainsString('does not belong', $result);
@@ -69,9 +74,10 @@ class ToolsTest extends TestCase
         $ticket = Ticket::factory()->for(Customer::factory()->withPayments())->create();
         $payment = $ticket->customer->payments()->first();
         $payment->update(['refunded_cents' => 14000]);
+        $this->approvedAction($ticket, 'call_1');
 
-        $result = (new IssueRefund)->handle(new Request([
-            'ticket_id' => $ticket->id, 'payment_id' => $payment->id, 'amount' => 20, 'reason' => 'Test.',
+        $result = (new IssueRefund($ticket))->handle(new Request([
+            'payment_id' => $payment->id, 'amount' => 20, 'reason' => 'Test.',
         ], 'call_1'));
 
         $this->assertStringContainsString('Only $9.00', $result);
@@ -83,8 +89,10 @@ class ToolsTest extends TestCase
         $ticket = Ticket::factory()->for(Customer::factory()->withPayments())->create();
         $payment = $ticket->customer->payments()->first();
 
-        (new IssueRefund)->handle(new Request([
-            'ticket_id' => $ticket->id, 'payment_id' => $payment->id, 'amount' => 149, 'reason' => 'Duplicate.',
+        $this->approvedAction($ticket, 'call_9');
+
+        (new IssueRefund($ticket))->handle(new Request([
+            'payment_id' => $payment->id, 'amount' => 149, 'reason' => 'Duplicate.',
         ], 'call_9'));
 
         $this->assertSame('refunded', $payment->fresh()->status);
@@ -97,12 +105,46 @@ class ToolsTest extends TestCase
         $ticket = Ticket::factory()->create();
         $sam = User::factory()->create(['email' => 'sam@flowly.test']);
 
-        (new UpdateTicket)->handle(new Request([
-            'ticket_id' => $ticket->id, 'assignee_email' => 'sam@flowly.test', 'priority' => 'high', 'reason' => 'Escalation.',
+        (new UpdateTicket($ticket))->handle(new Request([
+            'assignee_email' => 'sam@flowly.test', 'priority' => 'high', 'reason' => 'Escalation.',
         ], 'call_2'));
 
         $this->assertSame($sam->id, $ticket->fresh()->assignee_id);
         $this->assertSame('high', $ticket->fresh()->priority);
+    }
+
+    public function test_a_second_auto_refund_on_another_payment_counts_toward_the_limit(): void
+    {
+        $ticket = Ticket::factory()->for(Customer::factory()->withPayments())->create();
+        [$first, $second] = $ticket->customer->payments()->orderBy('id')->get()->all();
+
+        (new IssueRefund($ticket))->handle(new Request(['payment_id' => $first->id, 'amount' => 30, 'reason' => 'Credit.'], 'call_1'));
+
+        $approval = (new IssueRefund($ticket))->shouldRequestApproval(new Request(['payment_id' => $second->id, 'amount' => 30]));
+
+        $this->assertSame('Refund of $30.00 brings refunds on this ticket and payment to $60.00, over the $50.00 auto-approve limit.', $approval?->reason);
+    }
+
+    public function test_a_refund_a_human_approved_runs_even_above_the_limit(): void
+    {
+        $ticket = Ticket::factory()->for(Customer::factory()->withPayments())->create();
+        $payment = $ticket->customer->payments()->first();
+
+        $refused = (new IssueRefund($ticket))->handle(new Request(['payment_id' => $payment->id, 'amount' => 80, 'reason' => 'Test.'], 'call_1'));
+        $this->assertStringContainsString('needs a human', $refused);
+        $this->assertSame(0, $payment->fresh()->refunded_cents);
+
+        $this->approvedAction($ticket, 'call_2');
+        (new IssueRefund($ticket))->handle(new Request(['payment_id' => $payment->id, 'amount' => 80, 'reason' => 'Test.'], 'call_2'));
+        $this->assertSame(8000, $payment->fresh()->refunded_cents);
+    }
+
+    protected function approvedAction(Ticket $ticket, string $toolCallId): AgentAction
+    {
+        return AgentAction::create([
+            'ticket_id' => $ticket->id, 'conversation_id' => 'conv', 'invocation_id' => 'inv', 'tool_call_id' => $toolCallId,
+            'tool' => 'IssueRefund', 'arguments' => [], 'required_approval' => true, 'status' => AgentAction::APPROVED,
+        ]);
     }
 
     public function test_read_tools_return_what_the_model_needs(): void
@@ -110,9 +152,11 @@ class ToolsTest extends TestCase
         $ticket = Ticket::factory()->for(Customer::factory()->withPayments())->create();
         KbArticle::create(['title' => 'Duplicate charges', 'body' => 'We refund the duplicate in full.']);
 
-        $this->assertStringContainsString('Business plan', (new LookupCustomer)->handle(new Request(['customer_id' => $ticket->customer_id])));
-        $this->assertStringContainsString('refundable $149.00', (new LookupCustomer)->handle(new Request(['email' => $ticket->customer->email])));
-        $this->assertStringContainsString('charged my card twice', (new GetTicket)->handle(new Request(['ticket_id' => $ticket->id])));
+        $this->assertStringContainsString('Business plan', (new LookupCustomer($ticket))->handle(new Request(['customer_id' => $ticket->customer_id])));
+        $this->assertStringContainsString('refundable $149.00', (new LookupCustomer($ticket))->handle(new Request(['email' => $ticket->customer->email])));
+        $this->assertStringContainsString('refundable $149.00', (new LookupCustomer($ticket))->handle(new Request([])));
+        $this->assertStringContainsString('charged my card twice', (new GetTicket($ticket))->handle(new Request(['ticket_id' => $ticket->id])));
+        $this->assertStringContainsString('charged my card twice', (new GetTicket($ticket))->handle(new Request([])));
         $this->assertStringContainsString('Duplicate charges', (new SearchKnowledgeBase)->handle(new Request(['query' => 'charged twice duplicate'])));
         $this->assertStringContainsString('No articles matched', (new SearchKnowledgeBase)->handle(new Request(['query' => 'kubernetes'])));
     }

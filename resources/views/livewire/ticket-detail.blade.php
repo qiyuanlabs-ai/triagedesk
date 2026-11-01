@@ -8,7 +8,10 @@
             <x-badge :value="$ticket->priority" />
             <x-badge :value="$ticket->sentiment" />
             <span class="text-stone-500">Assignee: {{ $ticket->assignee?->name ?? 'Unassigned' }}</span>
-            @unless ($ticket->triaged_at)
+            @if ($ticket->recorded)
+                <span class="rounded bg-violet-100 px-1.5 py-0.5 text-xs font-medium text-violet-800" title="A real run, recorded and replayed so the public demo costs nothing">Recorded run</span>
+            @endif
+            @unless ($ticket->triaged_at || $liveDenial)
                 <button wire:click="triage" class="text-sky-700 underline">Run triage</button>
             @endunless
         </div>
@@ -69,8 +72,8 @@
                             @if ($turn->role === 'user')
                                 <p class="whitespace-pre-line">{{ $turn->content }}</p>
                             @else
-                                {{-- The model writes Markdown. Raw HTML and unsafe links are stripped. --}}
-                                <div class="agent-md">{!! Str::markdown($turn->content, ['html_input' => 'strip', 'allow_unsafe_links' => false]) !!}</div>
+                                {{-- The model writes Markdown. Raw HTML, unsafe links and images are stripped. --}}
+                                <div class="agent-md">{!! \App\Support\SafeMarkdown::render($turn->content) !!}</div>
                             @endif
                         </div>
                     @endif
@@ -82,9 +85,12 @@
                 @endforelse
             </div>
 
+            @if ($liveDenial)
+                <p class="mt-3 rounded bg-stone-100 px-3 py-2 text-xs text-stone-600">{{ $liveDenial }}</p>
+            @endif
             <form wire:submit="send" class="mt-3 flex gap-2">
-                <input wire:model="message" type="text" placeholder="Ask the agent, e.g. “Draft a reply and refund the duplicate”" class="min-w-0 flex-1 rounded border border-stone-300 px-3 py-1.5 text-sm">
-                <button class="rounded bg-stone-900 px-3 py-1.5 text-sm font-medium text-white" wire:loading.attr="disabled">
+                <input wire:model="message" type="text" @disabled($liveDenial) placeholder="Ask the agent, e.g. “Draft a reply and refund the duplicate”" class="min-w-0 flex-1 rounded border border-stone-300 px-3 py-1.5 text-sm disabled:bg-stone-100">
+                <button @disabled($liveDenial) class="rounded bg-stone-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40" wire:loading.attr="disabled">
                     <span wire:loading.remove wire:target="send">Send</span>
                     <span wire:loading wire:target="send">Thinking…</span>
                 </button>

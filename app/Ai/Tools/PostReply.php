@@ -11,16 +11,21 @@ use Laravel\Ai\Contracts\Tool;
 use Laravel\Ai\Tools\Request;
 use Stringable;
 
+/**
+ * Replies on the ticket the agent is working on. The ticket is fixed when the agent is built, never taken from the model.
+ */
 class PostReply implements Approvable, Tool
 {
     use InteractsWithApprovals;
+
+    public function __construct(protected Ticket $ticket) {}
 
     /**
      * Get the description of the tool's purpose.
      */
     public function description(): Stringable|string
     {
-        return 'Send a reply to the customer on a ticket. A human approves (and may edit) every reply before it is sent.';
+        return 'Send a reply to the customer on this ticket. A human approves (and may edit) every reply before it is sent.';
     }
 
     /**
@@ -29,26 +34,23 @@ class PostReply implements Approvable, Tool
     public function handle(Request $request): Stringable|string
     {
         $data = $request->validate([
-            'ticket_id' => ['required', 'integer', 'exists:tickets,id'],
             'body' => ['required', 'string', 'max:5000'],
             'reason' => ['nullable', 'string', 'max:500'],
         ]);
 
-        $ticket = Ticket::findOrFail($data['ticket_id']);
-
-        $ticket->messages()->create([
+        $this->ticket->messages()->create([
             'author_type' => 'agent',
             'author_name' => 'Support team',
             'body' => $data['body'],
         ]);
 
-        if (in_array($ticket->status, ['new', 'open'], true)) {
-            $ticket->update(['status' => 'pending']);
+        if (in_array($this->ticket->status, ['new', 'open'], true)) {
+            $this->ticket->update(['status' => 'pending']);
         }
 
-        $result = "Reply posted on ticket #{$ticket->id}; status is now {$ticket->status}.";
+        $result = "Reply posted on ticket #{$this->ticket->id}; status is now {$this->ticket->status}.";
 
-        ActionRecorder::executed($request, 'PostReply', $ticket->id, $result);
+        ActionRecorder::executed($request, 'PostReply', $this->ticket->id, $result);
 
         return $result;
     }
@@ -59,7 +61,6 @@ class PostReply implements Approvable, Tool
     public function schema(JsonSchema $schema): array
     {
         return [
-            'ticket_id' => $schema->integer()->required(),
             'body' => $schema->string()->description('The full reply, written to the customer.')->required(),
             'reason' => $schema->string()->description('One sentence the approver will read.'),
         ];

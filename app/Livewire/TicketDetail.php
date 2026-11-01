@@ -6,6 +6,7 @@ use App\Jobs\TriageTicket;
 use App\Livewire\Concerns\DecidesActions;
 use App\Models\Ticket;
 use App\Services\AgentRunner;
+use App\Services\LiveAccess;
 use Illuminate\Support\Facades\RateLimiter;
 use Laravel\Ai\Models\ConversationMessage;
 use Livewire\Component;
@@ -42,6 +43,12 @@ class TicketDetail extends Component
             return;
         }
 
+        if ($denial = LiveAccess::denial()) {
+            $this->chatError = $denial;
+
+            return;
+        }
+
         if (config('triagedesk.demo.enabled')
             && ! RateLimiter::attempt('demo-chat:'.request()->ip(), config('triagedesk.demo.chats_per_ip_per_day'), fn () => true, 86400)) {
             $this->chatError = 'You have used today\'s demo messages. Try again tomorrow.';
@@ -65,7 +72,21 @@ class TicketDetail extends Component
 
     public function triage(): void
     {
+        $this->chatError = null;
+
         if ($this->ticket->triaged_at) {
+            return;
+        }
+
+        if (! auth()->user()->can('work', $this->ticket)) {
+            $this->chatError = 'This ticket is assigned to someone else.';
+
+            return;
+        }
+
+        if ($denial = LiveAccess::denial()) {
+            $this->chatError = $denial;
+
             return;
         }
 
@@ -89,6 +110,7 @@ class TicketDetail extends Component
 
         return view('livewire.ticket-detail', [
             'conversation' => $conversation,
+            'liveDenial' => LiveAccess::denial(),
             'pending' => $this->ticket->actions->where('status', 'pending')->values(),
             'history' => $this->ticket->actions->where('status', '!=', 'pending')->sortByDesc('id')->values(),
         ])->layout('layouts.app')->title("#{$this->ticket->id} {$this->ticket->subject}");

@@ -3,7 +3,7 @@
 # "triagedesk-web" on the shared Docker network "qiyuan-edge". See docs/deploy-docker.md.
 #
 #   docker network create qiyuan-edge
-#   cp .env.example .env    # then set APP_KEY, APP_URL, ANTHROPIC_API_KEY, DEMO_MODE=true
+#   cp .env.example .env    # then set APP_KEY, APP_URL, ANTHROPIC_API_KEY and/or OPENAI_API_KEY, DEMO_MODE=true
 #   docker compose up -d --build
 
 services:
@@ -16,6 +16,7 @@ services:
       LOG_CHANNEL: stderr
       DB_CONNECTION: sqlite
       DB_DATABASE: /data/app/database.sqlite
+      DEMO_RECORDINGS_PATH: /data/app/recordings.json
     volumes:
       - data:/data/app
     networks:

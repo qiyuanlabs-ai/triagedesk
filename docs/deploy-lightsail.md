@@ -81,18 +81,16 @@ SESSION_DRIVER=database
 CACHE_STORE=database
 QUEUE_CONNECTION=database
 
-AI_PROVIDER=anthropic
 ANTHROPIC_API_KEY=sk-ant-...
-AI_TRIAGE_MODEL=                        # blank = the provider's cheapest model
-AI_SUPPORT_MODEL=                       # blank = the provider's default model
+OPENAI_API_KEY=                         # optional second provider
+AI_ANTHROPIC_DAILY_LIMIT_USD=3
+AI_OPENAI_DAILY_LIMIT_USD=6
 
 REFUND_AUTO_APPROVE_LIMIT=50
 
 DEMO_MODE=true
-DEMO_CHATS_PER_IP_PER_DAY=20
-DEMO_TRIAGES_PER_IP_PER_DAY=20
-AI_RUN_TOKEN_LIMIT=40000
-AI_DAILY_TOKEN_BUDGET=1000000
+DEMO_ACCESS_CODE=                       # set one to allow live runs
+DEMO_RECORDINGS_PATH=/var/www/triagedesk/storage/app/recordings.json
 ```
 
 Create the database and warm the caches:
@@ -236,9 +234,9 @@ Copy a fresh `public/build` from your machine if the front end changed.
 | Layer | Setting |
 |---|---|
 | Model provider | Monthly spend limit in the provider's console (step 1) |
-| App, per visitor | `DEMO_CHATS_PER_IP_PER_DAY`, `DEMO_TRIAGES_PER_IP_PER_DAY` |
+| App, visitors | Replay mode by default; live runs need `DEMO_ACCESS_CODE`. Then `DEMO_CHATS_PER_IP_PER_DAY`, `DEMO_TRIAGES_PER_IP_PER_DAY` |
 | App, per run | `AI_RUN_TOKEN_LIMIT` stops a run that loops; `#[MaxSteps(8)]` caps tool steps |
-| App, whole site | `AI_DAILY_TOKEN_BUDGET` switches agent runs off for the rest of the day |
+| App, whole site | `AI_ANTHROPIC_DAILY_LIMIT_USD` and `AI_OPENAI_DAILY_LIMIT_USD`, in dollars from real token usage, checked before every model call; `DEMO_LIVE_RUNS_PER_DAY` |
 | Models | Triage uses the provider's cheapest model; prompt caching is on for instructions and tool definitions |
 | AWS | Optional: AWS Budgets alert at $15 for the Lightsail bill |
 
@@ -253,10 +251,11 @@ composer require aws/aws-sdk-php
 ```
 
 ```dotenv
-AI_PROVIDER=bedrock
+AI_SUPPORT_PROVIDERS=bedrock
+AI_TRIAGE_PROVIDERS=bedrock
 AWS_BEDROCK_REGION=us-east-1
 AWS_ACCESS_KEY_ID=...
 AWS_SECRET_ACCESS_KEY=...
 ```
 
-The key belongs to an IAM user whose only permissions are `bedrock:InvokeModel` and `bedrock:InvokeModelWithResponseStream` on the models you enabled. Enable model access in the Bedrock console first, in the same region. This path has not been tested against a live Bedrock account.
+Add a `bedrock` entry with a `daily_limit_usd` under `providers` in `config/triagedesk.php`. The key belongs to an IAM user whose only permissions are `bedrock:InvokeModel` and `bedrock:InvokeModelWithResponseStream` on the models you enabled. Enable model access in the Bedrock console first, in the same region. This path has not been tested against a live Bedrock account.

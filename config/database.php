@@ -38,10 +38,12 @@ return [
             'database' => env('DB_DATABASE', database_path('database.sqlite')),
             'prefix' => '',
             'foreign_key_constraints' => env('DB_FOREIGN_KEYS', true),
-            'busy_timeout' => null,
-            'journal_mode' => null,
-            'synchronous' => null,
-            'transaction_mode' => 'DEFERRED',
+            // The web container and the queue worker share one file: wait for a lock instead of failing,
+            // let readers run alongside the writer, and take the write lock when a transaction starts.
+            'busy_timeout' => env('DB_BUSY_TIMEOUT', 5000),
+            'journal_mode' => env('DB_JOURNAL_MODE', 'wal'),
+            'synchronous' => env('DB_SYNCHRONOUS', 'normal'),
+            'transaction_mode' => env('DB_TRANSACTION_MODE', 'IMMEDIATE'),
         ],
 
         'mysql' => [

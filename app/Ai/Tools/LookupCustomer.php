@@ -2,21 +2,28 @@
 
 namespace App\Ai\Tools;
 
-use App\Models\Customer;
 use App\Models\Payment;
+use App\Models\Ticket;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Laravel\Ai\Contracts\Tool;
 use Laravel\Ai\Tools\Request;
 use Stringable;
 
+/**
+ * Reads the customer on the ticket the agent is working on, and no one else, so text planted in a ticket
+ * cannot make the agent fetch other customers' records.
+ */
 class LookupCustomer implements Tool
 {
+    public function __construct(protected Ticket $ticket) {}
+
     /**
      * Get the description of the tool's purpose.
      */
     public function description(): Stringable|string
     {
-        return 'Look up a customer by id or email: plan, subscription status, renewal date and the last 5 payments with their refundable amounts.';
+        return 'Look up the customer on this ticket: plan, subscription status, renewal date and the last 5 payments with their refundable amounts. '
+            .'Other customers are not available.';
     }
 
     /**
@@ -24,18 +31,18 @@ class LookupCustomer implements Tool
      */
     public function handle(Request $request): Stringable|string
     {
-        $data = $request->validate([
-            'customer_id' => ['nullable', 'integer', 'required_without:email'],
-            'email' => ['nullable', 'string', 'required_without:customer_id'],
-        ]);
-
-        $customer = Customer::with(['subscription', 'payments' => fn ($query) => $query->latest('paid_at')->limit(5)])
-            ->when($data['customer_id'] ?? null, fn ($query, $id) => $query->whereKey($id))
-            ->when($data['email'] ?? null, fn ($query, $email) => $query->where('email', $email))
+        $customer = $this->ticket->customer()
+            ->with(['subscription', 'payments' => fn ($query) => $query->latest('paid_at')->limit(5)])
             ->first();
 
-        if (! $customer) {
-            return 'No customer found.';
+        $asked = array_filter([
+            'customer_id' => $request['customer_id'] ?? null,
+            'email' => $request['email'] ?? null,
+        ]);
+
+        if (($asked['customer_id'] ?? $customer->id) != $customer->id
+            || strcasecmp($asked['email'] ?? $customer->email, $customer->email) !== 0) {
+            return "Only this ticket's customer (customer id {$customer->id}) can be looked up.";
         }
 
         $subscription = $customer->subscription
@@ -70,8 +77,7 @@ class LookupCustomer implements Tool
     public function schema(JsonSchema $schema): array
     {
         return [
-            'customer_id' => $schema->integer(),
-            'email' => $schema->string(),
+            'customer_id' => $schema->integer()->description('Optional: only this ticket\'s customer is available.'),
         ];
     }
 }
