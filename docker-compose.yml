@@ -1,0 +1,56 @@
+# TriageDesk on a Docker host, behind a reverse proxy that ends TLS.
+# Nothing is published on the host: the proxy reaches the web container by the name
+# "triagedesk-web" on the shared Docker network "qiyuan-edge". See docs/deploy-docker.md.
+#
+#   docker network create qiyuan-edge
+#   cp .env.example .env    # then set APP_KEY, APP_URL, ANTHROPIC_API_KEY, DEMO_MODE=true
+#   docker compose up -d --build
+
+services:
+  web:
+    build: .
+    image: triagedesk:local
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      LOG_CHANNEL: stderr
+      DB_CONNECTION: sqlite
+      DB_DATABASE: /data/app/database.sqlite
+    volumes:
+      - data:/data/app
+    networks:
+      default: {}
+      edge:
+        aliases: [triagedesk-web]
+    healthcheck:
+      test: ["CMD", "php", "-r", "exit(@file_get_contents('http://127.0.0.1:8080/up') === false ? 1 : 0);"]
+      interval: 10s
+      timeout: 5s
+      start_period: 60s
+      retries: 6
+    mem_limit: 512m
+
+  worker:
+    # Runs triage and resumes the agent after an approval.
+    image: triagedesk:local
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      LOG_CHANNEL: stderr
+      DB_CONNECTION: sqlite
+      DB_DATABASE: /data/app/database.sqlite
+    depends_on:
+      web:
+        condition: service_healthy
+    volumes:
+      - data:/data/app
+    command: ["php", "artisan", "queue:work", "--sleep=3", "--tries=1", "--timeout=300", "--max-time=3600"]
+    mem_limit: 256m
+
+volumes:
+  data:
+
+networks:
+  edge:
+    external: true
+    name: qiyuan-edge

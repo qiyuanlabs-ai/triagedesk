@@ -1,0 +1,19 @@
+{
+	frankenphp {
+		# A ticket chat waits on the model for up to a few minutes, so keep a few spare threads.
+		num_threads {$PHP_THREADS:6}
+	}
+	admin off
+	auto_https off
+}
+
+{$SERVER_NAME::8080} {
+	root * /app/public
+	encode zstd gzip
+	header {
+		-Server
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+	}
+	php_server
+}

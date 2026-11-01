@@ -1,0 +1,21 @@
+# Compose override for the Easy!Appointments MCP demo in /opt/ea-mcp-server, added by
+# deploy/install-lightsail.sh. That demo's FrankenPHP container already owns ports 80 and 443
+# and gets certificates from Let's Encrypt. This override lets it also serve TriageDesk:
+#  - it joins the shared network "qiyuan-edge", where TriageDesk's web container lives;
+#  - it starts Caddy with /opt/triagedesk/deploy/caddy/Caddyfile, which imports the demo's
+#    own Caddyfile unchanged and adds one site block that proxies to TriageDesk.
+# Remove this file from COMPOSE_FILE in /opt/ea-mcp-server/.env to undo it.
+
+services:
+  mcp:
+    command: ["frankenphp", "run", "--config", "/etc/frankenphp/sites/Caddyfile"]
+    volumes:
+      - /opt/triagedesk/deploy/caddy:/etc/frankenphp/sites:ro
+    networks:
+      default: {}
+      edge: {}
+
+networks:
+  edge:
+    external: true
+    name: qiyuan-edge
