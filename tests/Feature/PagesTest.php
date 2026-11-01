@@ -9,6 +9,7 @@ use App\Livewire\TicketList;
 use App\Models\Ticket;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Livewire\Livewire;
 use Tests\TestCase;
@@ -79,5 +80,34 @@ class PagesTest extends TestCase
             ->set('message', 'Refund them')
             ->call('send')
             ->assertSet('chatError', 'This ticket is assigned to someone else.');
+    }
+
+    public function test_agent_replies_render_markdown_without_raw_html(): void
+    {
+        $ticket = Ticket::first();
+        $ticket->update(['agent_conversation_id' => 'conv-md-test']);
+
+        DB::table('agent_conversation_messages')->insert([
+            'id' => 'msg-md-test',
+            'conversation_id' => 'conv-md-test',
+            'agent' => 'App\\Ai\\Agents\\SupportAgent',
+            'role' => 'assistant',
+            'content' => "Handled.\n\n- **Refund:** done\n- <script>alert(1)</script>[link](javascript:alert(1))",
+            'attachments' => '[]',
+            'steps' => '[]',
+            'usage' => '[]',
+            'meta' => '[]',
+            'status' => 'completed',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->actingAs(User::firstWhere('role', 'admin'))
+            ->get('/tickets/'.$ticket->id)
+            ->assertOk()
+            ->assertSee('<strong>Refund:</strong>', false)
+            ->assertSee('<li>', false)
+            ->assertDontSee('<script>alert(1)</script>', false)
+            ->assertDontSee('href="javascript:', false);
     }
 }

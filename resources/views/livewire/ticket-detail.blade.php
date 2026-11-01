@@ -66,7 +66,12 @@
                     @if (filled($turn->content))
                         <div wire:key="turn-{{ $turn->id }}">
                             <p class="text-xs font-medium text-stone-500">{{ $turn->role === 'user' ? (str_starts_with($turn->content, '[Automated') ? 'TriageDesk' : 'Teammate') : 'Agent' }}</p>
-                            <p class="whitespace-pre-line">{{ $turn->content }}</p>
+                            @if ($turn->role === 'user')
+                                <p class="whitespace-pre-line">{{ $turn->content }}</p>
+                            @else
+                                {{-- The model writes Markdown. Raw HTML and unsafe links are stripped. --}}
+                                <div class="agent-md">{!! Str::markdown($turn->content, ['html_input' => 'strip', 'allow_unsafe_links' => false]) !!}</div>
+                            @endif
                         </div>
                     @endif
                     @foreach ($turn->tool_calls ?? [] as $call)
